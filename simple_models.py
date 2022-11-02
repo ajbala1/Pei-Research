@@ -16,11 +16,12 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
 #        N = pop size. D = infection period. L = immune period. (measured in days)
 #output: arrays of S, I, and R over time interval
 
-    def beta_t(t, eps = 0.5, psi = 365): #right now this is hardcoded based off of previous papers/emails. I can create a dynamic function later.
+    def beta_t(t, eps = 0.3, psi = 365): #right now this is hardcoded based off of previous papers/emails. I can create a dynamic function later.
     #eps = amp of the seasonal adjustment, psi = period 
         return max(0 , beta + eps * sin(2.0 * pi / psi * (t - 3*psi/4)))
+        #maybe base off humidity
+        #forecasting seasonal outbreaks of influenza
 
-    
     i = 0
     times = [*range(tm_strt, tm_end + 1, step)] #inclusive of the endpoint
     times_size = len(times)
@@ -28,7 +29,7 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
 
     S = [0 for i in range(times_size)]
     I = [0 for i in range(times_size)]
-    dI = [0 for i in range(times_size)]
+    newI = [0 for i in range(times_size)]
     R = [0 for i in range(times_size)]
     R[0] = R0
     S[0] = round(S0, 0)
@@ -36,7 +37,6 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
     
 
     for t in range(times_size - 1):
-        #print(t)
         #Round 1
         Eimmloss = max(0, step * (1 / L  * (N- S[i] - I[i]))) #expected immunity loss
         Einf = max(0, step * (beta_t(t) * I[i] * S[i] / N)) #expected infections
@@ -44,6 +44,7 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
         smcl = np.random.poisson(Eimmloss)
         smci = np.random.poisson(Einf)
         smcr = np.random.poisson(Erecov)
+        newI[i + 1] += smci / 6
 
         sk1 = smcl - smci #dS = newly sus. - infected
         ik1 = smci - smcr #dI = new infections - recovery
@@ -58,6 +59,7 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
         smcl = np.random.poisson(Eimmloss)
         smci = np.random.poisson(Einf)
         smcr = np.random.poisson(Erecov)
+        newI[i + 1] += smci / 3
 
         sk2 = smcl - smci #dS = newly sus. - infected
         ik2 = smci - smcr #dI = new infections - recovery
@@ -72,6 +74,7 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
         smcl = np.random.poisson(Eimmloss)
         smci = np.random.poisson(Einf)
         smcr = np.random.poisson(Erecov)
+        newI[i + 1] += smci / 3
 
         sk3 = smcl - smci #dS = newly sus. - infected
         ik3 = smci - smcr #dI = new infections - recovery
@@ -86,6 +89,7 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
         smcl = np.random.poisson(Eimmloss)
         smci = np.random.poisson(Einf)
         smcr = np.random.poisson(Erecov)
+        newI[i + 1] += smci / 6
 
         sk4 = smcl - smci #dS = newly sus. - infected
         ik4 = smci - smcr #dI = new infections - recovery
@@ -93,13 +97,18 @@ def simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta): #SIRS Model
 
         #Final Calculations
         i += 1
-        seed = np.random.poisson(0.1)
+        #seed = np.random.poisson(1)
+        seed = 0.000001
+        print(seed)
         S[i] = S[i - 1] + round(sk1/6+sk2/3+sk3/3+sk4/6,0) - seed
+        print("Si:   " + str(S[i]))
         I[i] = I[i-1] + round(ik1/6+ik2/3+ik3/3+ik4/6, 0) + seed
-        dI[i] = round(ik1/6+ik2/3+ik3/3+ik4/6, 0) + seed
+        newI[i] = round(newI[i], 0) + seed
+        #dI[i] = round(ik1/6+ik2/3+ik3/3+ik4/6, 0) + seed
+        #redo b/c dI needs to be just new infections not new infections-recovery. This should not be negative
         R[i] = N - S[i] - I[i] 
         
-    return S, I, dI, R
+    return S, I, newI, R
 
 def simple_multistrain_RK_model(tm_strt, tm_end, tm_step, S0, I0, R0, N, mu, beta, nu, sigma): #SIR model
 #S0/I0 = array of initial susceptible/infected
@@ -251,15 +260,15 @@ def RK_method(S, I, dI, R, N, beta, nu, mu, sigma, curr, step, t):
 
     return next_S, next_I, next_dI, next_R
 
-def Plot_SIR(S, I, R, beta = "n/a", dI = None, plot_I = True, pathogens = 1):
+def Plot_SIR(S, I, R, beta = "n/a", newI = None, plot_I = True, pathogens = 1):
     sns.set_style("darkgrid")
     if pathogens == 1: 
         plt.plot(range(len(S)), S, label = "S")
         if plot_I:
             plt.plot(range(len(I)), I, label = "I")
         plt.plot(range(len(R)), R, label = "R")
-        if dI:
-            plt.plot(range(len(dI)), dI, label = "dI")
+        if newI:
+            plt.plot(range(len(newI)), newI, label = "newI")
         plt.legend()
         plt.xlabel('Time')
         plt.ylabel('Number of Cases')
@@ -272,17 +281,17 @@ def Plot_SIR(S, I, R, beta = "n/a", dI = None, plot_I = True, pathogens = 1):
             Si = []
             Ii = []
             Ri = []
-            dIi = []
+            newIi = []
             for i in range(len(S)):
                 Si.append(S[i][j])
                 Ii.append(I[i][j])
                 Ri.append(R[i][j])
-                dIi.append(dI[i][j])
+                newIi.append(newI[i][j])
             plt.subplot(1,2, j + 1)
             plt.plot(range(len(Ii)), Ii, label = "I")
             plt.plot(range(len(Si)), Si, label = "S")
             plt.plot(range(len(Ri)), Ri, label = "R")
-            plt.plot(range(len(dIi)), dIi, label = "dI")
+            plt.plot(range(len(newIi)), newIi, label = "newI")
 
         plt.subplot(1,2,1)
         plt.legend()
@@ -293,13 +302,6 @@ def Plot_SIR(S, I, R, beta = "n/a", dI = None, plot_I = True, pathogens = 1):
     plt.show()
 
 
-def beta_t(eps = 0.5, psi = 365): #right now this is hardcoded based off of previous papers/emails. I can create a dynamic function later.
-    #eps = amp of the seasonal adjustment, psi = period 
-    betas = []
-    for t in range(365):
-        betas.append(max(0, 0.4 + eps * sin(2.0 * pi / psi * (t -  3 * psi / 4))))
-    return betas
-
 if __name__ == '__main__':
 
     
@@ -307,23 +309,23 @@ if __name__ == '__main__':
     #simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta):
     
     #Testing different betas
-    S, I, dI, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.4)
-    Plot_SIR(S,I,R, 0.4, dI)
+    #S, I, newI, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.4)
+    #Plot_SIR(S,I,R, 0.4, newI)
 
-    plt.plot(range(len(dI)), dI)
+    #plt.plot(range(len(newI)), newI)
     #plt.show()
 
-    betas = beta_t()
+    #betas = beta_t()
     #plt.plot(range(len(betas)), betas)
     #plt.show()
     
-    S, I, dI, R = simple_SIR(0, 1080, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.4)
-    Plot_SIR(S,I,R, 0.4, dI)
-    
+    S, I, newI, R = simple_SIR(0, 1080, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.4)
+    Plot_SIR(S,I,R, 0.4, newI)
+    '''
     #Plotting with Multiple Betas
-    S, I, dI1, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.4)
-    S, I, dI2, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.7)
-    S, I, dI3, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.1)
+    S, I, newI1, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.4)
+    S, I, newI2, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.7)
+    S, I, newI3, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.1)
     sns.set_style("darkgrid")
     plt.plot(range(len(dI1)), dI1, label = "dI1")
     plt.plot(range(len(dI2)), dI2, label = "dI2")
@@ -362,5 +364,83 @@ if __name__ == '__main__':
     #def simple_SIR(tm_strt, tm_end, step, S0, I0, N, D, L, beta, real_data = False, discrete = True): 
     S,I,dI,R = simple_multistrain_RK_model(0, 365, 1, S, I, R, S[0] + R[0] + I[0], mu, beta, nu, sigma)
     Plot_SIR(S,I,R, dI = dI, pathogens = 2)
+    '''
+'''
+if __name__ == '__main__':
+
+    
+    #------TEST simple_SIR------
+    #simple_SIR(tm_strt, tm_end, step, S0, I0, R0, N, D, L, beta):
+    
+    #Testing different betas
+    S, I, newI, R = simple_SIR(365, 730, 1, 1000000, 1000, 0, 1001000, 5, 9, 0.7)
+    Plot_SIR(S,I,R, 0.4, newI)
+
+    plt.plot(range(len(newI)), newI)
+    #plt.show()
+
+    #betas = beta_t()
+    #plt.plot(range(len(betas)), betas)
+    #plt.show()
+    
+    S, I, newI, R = simple_SIR(0, 720, 1, 1000000, 1000, 0, 1001000, 5, 9, 0.7)
+    
+    for i in range(1,len(S)):
+        if S[i - 1] < S[i]:
+            print(i, S[i])
+
+    Plot_SIR(S,I,R, 0.4, newI)
+    
+    
+    #Plotting with Multiple Betas
+    S, I, dI1, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.4)
+    S, I, dI2, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.7)
+    S, I, dI3, R = simple_SIR(0, 365, 1, 1000000, 1000, 0, 1001000, 5, 90, 0.1)
+    sns.set_style("darkgrid")
+    plt.plot(range(len(dI1)), dI1, label = "dI1")
+    plt.plot(range(len(dI2)), dI2, label = "dI2")
+    plt.plot(range(len(dI3)), dI3, label = "dI3")
+    plt.legend()
+    plt.xlabel('Time')
+    plt.ylabel('Number of Cases')
+    plt.show()
+    
+    #-------TEST simple_multistrain_RK_model------
+    
+    #one-way cross-immunity
+    S=[1000000, 1000000]
+    I= [1000, 1000]
+    R = [0, 0]
+    beta = [1.1, 0.8]
+    mu = 1/ 30.0  #as proportion of pop
+    nu = [0.26, 0.26]
+    sigma=[[1, 0.4], [0, 1]]
+    beta0 = [0.6, 0.8]
+
+    #def simple_SIR(tm_strt, tm_end, step, S0, I0, N, D, L, beta, real_data = False, discrete = True): 
+    S,I,dI,R = simple_multistrain_RK_model(0, 365, 1, S, I, R, S[0] + R[0] + I[0], mu, beta, nu, sigma)
+    Plot_SIR(S,I,R, dI = dI, pathogens = 2)
+
+    #two-way immunity
+    S=[1000000, 1000000]
+    I= [10000, 1000]
+    R = [0, 0]
+    beta = [1.1, 0.8]
+    mu = 1/ 30.0  #as proportion of pop
+    nu = [0.26, 0.26]
+    sigma=[[1, 0.4], [0.6, 1]]
+    beta0 = [0.6, 0.6]
+
+    #def simple_SIR(tm_strt, tm_end, step, S0, I0, N, D, L, beta, real_data = False, discrete = True): 
+    S,I,dI,R = simple_multistrain_RK_model(0, 365, 1, S, I, R, S[0] + R[0] + I[0], mu, beta, nu, sigma)
+    Plot_SIR(S,I,R, dI = dI, pathogens = 2)
+
+    #why is multi-year model behaving weird? Should not be diff year to year
+    #change starting point
+    #Tinker with parameters
+    #much longer immunity period (try 2 years)
+    #time start = 285
+    #remove seeding
+'''
     
     
